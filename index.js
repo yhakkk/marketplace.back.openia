@@ -22,49 +22,53 @@ const openai = new OpenAI(process.env.OPENAI_API_KEY);
 const storage = multer.memoryStorage();  // Usamos memoryStorage para manejar el archivo en RAM
 const upload = multer({ storage });  // Usar multer para gestionar el archivo
 
-// Endpoint para usar el asistente
 app.post('/generate-description', upload.single('imagen'), async (req, res) => {
   try {
     const { title } = req.body;
-    const image = req.file;  // La imagen cargada desde el formulario
-
+    const image = req.file;  // La imagen cargada desde el formulario (puede ser nula)
 
     if (!title) {
       return res.status(400).send({ error: "El título es requerido" });
     }
 
-    
-    // Enviar la imagen procesada a OpenAI (si es necesario) o manejarla en tu lógica
-    // Aquí puedes convertirla a base64 o trabajar con el buffer según lo que necesites
-    const imageBase64 = "data:image/jpeg;base64,"+image.buffer.toString("base64");
+    let send_image = null; // Variable para almacenar la imagen enviada (si hay)
 
-    const newFile = new File([image.buffer],image.originalname, {
-      type: image.mimetype,
-    });
+    if (image) {
+      // Procesar la imagen solo si está presente
+      const imageBase64 = "data:image/jpeg;base64," + image.buffer.toString("base64");
+      
+      const newFile = new File([image.buffer], image.originalname, {
+        type: image.mimetype,
+      });
 
-    const send_image = await openai.files.create({ file: newFile, purpose: 'assistants' });
-    console.log("asd",send_image)
-    console.log("Este es imagen")
-    console.log(imageBase64)
+      // Enviar la imagen a OpenAI si existe
+      send_image = await openai.files.create({ file: newFile, purpose: 'assistants' });
+      console.log("Imagen enviada:", send_image);
+    }
+
     // Crear el objeto de mensaje en formato JSON
     const messageObject = {
       text: title,
       type: "text"
     };
 
-
     // Crear el hilo de conversación en OpenAI
     const threadResponse = await openai.beta.threads.create();
     const threadId = threadResponse.id;
 
+    // Armar el contenido del mensaje dependiendo si hay o no imagen
+    const messageContent = [messageObject];
+    if (send_image) {
+      messageContent.push({ type: "image_file", image_file: { file_id: send_image.id } });
+    }
+
     // Agregar un mensaje al hilo
     await openai.beta.threads.messages.create(threadId, {
       role: "user",
-      content: [messageObject, {type:"image_file", image_file:{file_id:send_image.id}}],
-  //    attachments:[imageBase64]
+      content: messageContent,
     });
 
-    console.log(threadId);
+    console.log("ID del hilo:", threadId);
 
     // Ejecutar el asistente
     const runResponse = await openai.beta.threads.runs.create(threadId, {
@@ -99,6 +103,7 @@ app.post('/generate-description', upload.single('imagen'), async (req, res) => {
     res.status(500).send({ error: "Ha ocurrido un error en el servidor." });
   }
 });
+
 
 // Escuchar en el puerto especificado
 app.listen(port, () => {
